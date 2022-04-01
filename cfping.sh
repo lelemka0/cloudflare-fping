@@ -846,13 +846,14 @@ usage:
 
         ---
 
-      $_this -d [-L https://domain.com/xxx] [-N 100] [-P 10] [-I ip]
+      $_this -d [-L https://domain.com/xxx] [-N 100] [-P 10] [-I ip] [-D 10]
         -d     speed test (default testing best 100 IPs unless -I used)
         -L <x> set the file link to test (default: https://speed.cloudflare.com/__down?bytes=100001000)
                the domain of this link must have cname record on cloudflare
         -N <x> set the number of IPs to test (default is 100)
         -P <x> set the parallel number of speed test (default is 10)
         -I <x> specify an ip to test
+        -D <x> set period to delete downloaded files (default is 10)
 
         ---
 
@@ -1041,17 +1042,34 @@ EOF
 
   cfping:speedtestips() {
     mkdir -p cf_speed_test
-    awk 'NR <= '"$st_num"' {print $1}' ip_sorted | xargs -L1 -P"$st_parallel" sh -c 'curl --resolve '"$st_domain:$st_port"':$0 "'"$st_link"'" -o cf_speed_test/$0 -s --connect-timeout 2 --max-time 10 || true'
-    cd cf_speed_test
-    if [[ $(uname) == "Darwin" ]] 
-    then
-      ip_speed_test=$(find -- * -type f -print0 | xargs -0 stat -f '%N %z' | sort -k2,2rn | awk '{printf "%s %.2f MB\n",$1,$2/1024/1024}')
-      # rm -- *
-    else
-      ip_speed_test=$(find -- * -type f -printf '%p %s\n' | sort -k2,2rn | awk '{printf "%s %.2f MB\n",$1,$2/1024/1024}')
+    ip_wait_test=$(awk 'NR <= '"$st_num"' {print $1}' ip_sorted)
+    ip_test_group=1
+    if (( st_delete > 0 )); then
+      ip_test_group=$(util:ceil $( echo "$st_num/$st_delete" | bc -l ))
     fi
+
+    ip_speed_test=""
+    cd cf_speed_test
+    for (( i=1;i<=ip_test_group;i++ )); do
+      ip_test_start=$(( (i-1)*st_delete+1 ))
+      ip_test_end=$(( i*st_delete ))
+      if (( i == ip_test_group )); then
+        ip_test_end="\$"
+      fi
+      echo "$ip_wait_test" | sed -n ''"${ip_test_start},${ip_test_end}"'p' | xargs -L1 -P"$st_parallel" sh -c 'curl --resolve '"$st_domain:$st_port"':$0 "'"$st_link"'" -o ./$0 -s --connect-timeout 2 --max-time 10 || true'
+
+      if [[ $(uname) == "Darwin" ]]; then
+        ip_speed_test=${ip_speed_test}" "$(find -- * -type f -print0 | xargs -0 stat -f '%N %z')
+        # rm -- *
+      else
+        ip_speed_test=${ip_speed_test}" "$(find -- * -type f -printf '%p %s\n')
+      fi
+
+      rm -f ./*
+    done
     cd ..
-    rm -rf cf_speed_test
+    ip_speed_test=$(echo "$ip_speed_test" | sort -k2,2rn | awk '{printf "%s %.2f MB\n",$1,$2/1024/1024}')
+
     echo "$ip_speed_test" > ip_speed_test
     ip_speed_test=$(awk 'NR==FNR{a[$1]=$0;next}{printf "%s speed: %s MB/10s\n",a[$1],$2}' ip_sorted ip_speed_test)
     echo "$ip_speed_test" > ip_speed_test
@@ -1083,6 +1101,9 @@ EOF
         ;;
       I)
         var="st_ip"
+        ;;
+      D)
+        var="st_delete"
         ;;
       s)
         var="mseconds"
@@ -1148,6 +1169,7 @@ EOF
   local st_num=100
   local st_link="https://speed.cloudflare.com/__down?bytes=100001000"
   local st_parallel=10
+  local st_delete=0
   local st_ip=""
   local mseconds=2000
   local packets=5
@@ -1161,9 +1183,9 @@ EOF
   local start
   local end
 
-  while getopts "f:i:n:t:p:s:g:m:L:N:P:I:?hvcld" opt; do
+  while getopts "f:i:n:t:p:s:g:m:L:N:P:I:D:?hvcld" opt; do
     case ${opt} in
-      f | i | n | t | p | s | g | m | L | N | P | I)
+      f | i | n | t | p | s | g | m | L | N | P | I |D)
         cfping:set "$opt" "$OPTARG"
         ;;
       c | l | d)
@@ -1242,6 +1264,13 @@ EOF
   else
     cfping:printip "$@"
   fi
+}
+
+# https://www.cxymm.net/article/hongxingabc/103926449
+util:ceil(){
+  floor=`echo "scale=0;$1/1"|bc -l `
+  add=`awk -v num1=$floor -v num2=$1 'BEGIN{print(num1<num2)?"1":"0"}'`
+  echo `expr $floor  + $add`
 }
 
 if [[ "${BASH_SOURCE[0]}" = "${0}" ]]; then
