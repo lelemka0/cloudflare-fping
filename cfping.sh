@@ -846,14 +846,15 @@ usage:
 
         ---
 
-      $_this -d [-L https://domain.com/xxx] [-N 100] [-P 10] [-I ip] [-D 10]
+      $_this -d [-L https://domain.com/xxx] [-N 100] [-P 10] [-I ip] [-D 0]
         -d     speed test (default testing best 100 IPs unless -I used)
         -L <x> set the file link to test (default: https://speed.cloudflare.com/__down?bytes=100001000)
                the domain of this link must have cname record on cloudflare
         -N <x> set the number of IPs to test (default is 100)
         -P <x> set the parallel number of speed test (default is 10)
         -I <x> specify an ip to test
-        -D <x> set period to delete downloaded files (default is 10)
+        -D <x> set period to delete downloaded files (default is 0)
+               the default value means to delete downloaded files after the run ends
 
         ---
 
